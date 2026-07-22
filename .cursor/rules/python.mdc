@@ -1,0 +1,17 @@
+---
+description: Python backend standards
+globs:
+  - "backend/**/*.py"
+---
+
+For Python code:
+- Prefer typed functions where reasonable.
+- Keep service functions and analytics modules small and testable.
+- Separate SQLAlchemy models from business logic.
+- Use Pydantic for request and response schemas.
+- Write concise docstrings for public functions.
+- Use environment variables for configuration.
+- Avoid side effects in utility functions.
+- Add pytest coverage for scoring, tagging, and classification logic.
+- Keep analytics explainable and deterministic for the MVP.
+- Do not put heavy logic directly in route files.

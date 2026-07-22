@@ -1,0 +1,23 @@
+services:
+  backend:
+    build: ./backend
+    container_name: cyber-narrative-radar-backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: sqlite:////app/data/cyber_narrative_radar.db
+    volumes:
+      - backend_data:/app/data
+
+  frontend:
+    build: ./frontend
+    container_name: cyber-narrative-radar-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+    depends_on:
+      - backend
+
+volumes:
+  backend_data:

@@ -1,0 +1,28 @@
+---
+description: Project-wide rules for Cyber Narrative Radar
+alwaysApply: true
+---
+
+You are helping build a portfolio-grade cybersecurity narrative intelligence MVP.
+
+Project priorities:
+- Keep the project clean, demoable, and explainable.
+- Prefer interpretable analytics over black-box AI.
+- Use public data or synthetic demo data only.
+- Organize backend code into collectors, analytics, services, db, schemas, api, and tasks.
+- Keep route files thin.
+- Put logic in services or analytics modules.
+- Reuse code before creating new helpers.
+- Do not fabricate unsupported APIs, scraping access, or fake integrations.
+- When a task is large, propose a phased plan before coding.
+- After implementing, summarize changed files and exact run steps.
+
+Product intent:
+- This project is inspired by the public concept of narrative intelligence platforms, adapted for cybersecurity early warning.
+- The system should detect unusual cyber-relevant chatter, classify likely narrative types, and produce explainable alerts.
+
+Implementation style:
+- Favor local-first simplicity.
+- Favor deterministic logic where possible.
+- Build professional, analyst-friendly outputs.
+- Avoid unnecessary complexity.

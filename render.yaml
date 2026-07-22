@@ -1,0 +1,50 @@
+# Render Blueprint — Cyber Narrative Radar (first pass)
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Backend: FastAPI + uvicorn (rootDir: backend)
+# Frontend: Vite static site (rootDir: frontend, publish: dist)
+#
+# FRONTEND_URL and VITE_API_BASE_URL are wired from each service's
+# RENDER_EXTERNAL_URL so CORS and API calls match the deployed hosts.
+
+services:
+  - type: web
+    name: cyber-narrative-radar-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      # Local-style SQLite by default; override with Postgres DATABASE_URL in the dashboard if needed.
+      - key: DATABASE_URL
+        value: sqlite:///./cyber_narrative_radar.db
+      - key: FRONTEND_URL
+        fromService:
+          type: web
+          name: cyber-narrative-radar-web
+          envVarKey: RENDER_EXTERNAL_URL
+
+  - type: web
+    name: cyber-narrative-radar-web
+    runtime: static
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      # Baked into the Vite client at build time.
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: cyber-narrative-radar-api
+          envVarKey: RENDER_EXTERNAL_URL

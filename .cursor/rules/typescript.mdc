@@ -1,0 +1,16 @@
+---
+description: Frontend standards
+globs:
+  - "frontend/**/*.ts"
+  - "frontend/**/*.tsx"
+---
+
+For frontend code:
+- Use TypeScript.
+- Keep components small and reusable.
+- Prefer simple state management.
+- Build responsive views for analyst workflows.
+- Fetch data cleanly from backend APIs.
+- Favor clarity and interpretability over flashy styling.
+- Use charts to support analysis, not decoration.
+- Keep page layouts professional and easy to demo.
