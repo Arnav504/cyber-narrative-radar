@@ -33,7 +33,6 @@ services:
   - type: web
     name: cyber-narrative-radar-web
     runtime: static
-    plan: free
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
