@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import FreshnessStamp from "../components/FreshnessStamp";
+import { useDashboardRefresh } from "../context/DashboardRefreshContext";
 import { useSelectedOrganization } from "../context/OrganizationContext";
+import { DEFAULT_POLL_INTERVAL_MS, usePolling } from "../hooks/usePolling";
 import {
   fetchOrganizationDrilldown,
   fetchOrganizations,
@@ -9,7 +12,6 @@ import {
 } from "../lib/api";
 
 function riskBand(score: number): "low" | "medium" | "high" {
-  // Supports legacy 0-1 risk_score and 0-100 max_score.
   const normalized = score > 1 ? score / 100 : score;
   if (normalized >= 0.75) {
     return "high";
@@ -26,115 +28,93 @@ function displayScore(org: Organization): number {
 
 export default function OrganizationsPage() {
   const { selected, selectOrganization } = useSelectedOrganization();
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [sectorOptions, setSectorOptions] = useState<string[]>([]);
+  const { refreshVersion, notifyUpdated } = useDashboardRefresh();
   const [search, setSearch] = useState("");
   const [sector, setSector] = useState("");
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [sectorOptions, setSectorOptions] = useState<string[]>([]);
   const [drilldown, setDrilldown] = useState<OrganizationDrilldown | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [drilldownLoading, setDrilldownLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [drilldownError, setDrilldownError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
+  const drilldownLoadedRef = useRef(false);
 
   const filtersActive = Boolean(search.trim() || sector);
   const selectedId = selected?.id ?? null;
+  const selectedSlug = selected?.slug ?? "";
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function loadSectors() {
-      try {
-        const data = await fetchOrganizations();
-        if (controller.signal.aborted) {
-          return;
-        }
-        const sectors = [...new Set(data.map((org) => org.sector).filter(Boolean))].sort(
-          (a, b) => a.localeCompare(b),
-        );
-        setSectorOptions(sectors);
-      } catch {
-        // Sector dropdown can stay empty if this fails.
-      }
+  const loadOrganizations = useCallback(async () => {
+    if (hasLoadedRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
     }
 
-    void loadSectors();
-    return () => controller.abort();
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function load() {
-      setLoading(true);
-      try {
-        const data = await fetchOrganizations({
+    try {
+      const [filtered, all] = await Promise.all([
+        fetchOrganizations({
           search: search.trim() || undefined,
           sector: sector || undefined,
-        });
-        if (controller.signal.aborted) {
-          return;
-        }
-        const ranked = [...data].sort((a, b) => displayScore(b) - displayScore(a));
-        setOrganizations(ranked);
-        setError(null);
-      } catch (err) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setError(err instanceof Error ? err.message : "Failed to load organizations");
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
+        }),
+        fetchOrganizations(),
+      ]);
+      setOrganizations(
+        [...filtered].sort((a, b) => displayScore(b) - displayScore(a)),
+      );
+      setSectorOptions(
+        [...new Set(all.map((org) => org.sector).filter(Boolean))].sort((a, b) =>
+          a.localeCompare(b),
+        ),
+      );
+      setError(null);
+      notifyUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load organizations");
+    } finally {
+      hasLoadedRef.current = true;
+      setLoading(false);
+      setRefreshing(false);
     }
+  }, [search, sector, notifyUpdated]);
 
-    void load();
-    return () => controller.abort();
-  }, [search, sector]);
+  usePolling(loadOrganizations, DEFAULT_POLL_INTERVAL_MS, {
+    deps: [search, sector, refreshVersion],
+  });
 
-  useEffect(() => {
-    if (!selectedId) {
+  const loadDrilldown = useCallback(async () => {
+    if (!selectedId || !selectedSlug) {
       setDrilldown(null);
       setDrilldownError(null);
       return;
     }
 
-    const selectedOrg = organizations.find((org) => org.id === selectedId);
-    const ref = selectedOrg ? organizationRef(selectedOrg) : selected?.slug;
-    if (!ref) {
-      return;
-    }
-
-    const controller = new AbortController();
-
-    async function loadDrilldown() {
+    if (!drilldownLoadedRef.current) {
       setDrilldownLoading(true);
-      setDrilldownError(null);
-      try {
-        const data = await fetchOrganizationDrilldown(ref!);
-        if (controller.signal.aborted) {
-          return;
-        }
-        setDrilldown(data);
-      } catch (err) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setDrilldown(null);
-        setDrilldownError(
-          err instanceof Error ? err.message : "Failed to load organization drilldown",
-        );
-      } finally {
-        if (!controller.signal.aborted) {
-          setDrilldownLoading(false);
-        }
-      }
     }
+    setDrilldownError(null);
 
-    void loadDrilldown();
-    return () => controller.abort();
-  }, [selectedId, selected?.slug, organizations]);
+    try {
+      const data = await fetchOrganizationDrilldown(selectedSlug);
+      setDrilldown(data);
+      notifyUpdated();
+    } catch (err) {
+      setDrilldown(null);
+      setDrilldownError(
+        err instanceof Error ? err.message : "Failed to load organization drilldown",
+      );
+    } finally {
+      drilldownLoadedRef.current = true;
+      setDrilldownLoading(false);
+    }
+  }, [selectedId, selectedSlug, notifyUpdated]);
+
+  usePolling(loadDrilldown, DEFAULT_POLL_INTERVAL_MS, {
+    enabled: Boolean(selectedId && selectedSlug),
+    deps: [selectedId, selectedSlug, refreshVersion],
+  });
 
   const emptyMessage = useMemo(() => {
     if (filtersActive) {
@@ -161,11 +141,15 @@ export default function OrganizationsPage() {
             drive Org Detail and Org Trend.
           </p>
         </div>
-        <span className="page-header-meta">
-          {selected ? `Selected: ${selected.name}` : "None selected"} ·{" "}
-          {organizations.length}{" "}
-          {organizations.length === 1 ? "organization" : "organizations"}
-        </span>
+        <div className="page-header-freshness">
+          <span className="page-header-meta">
+            {refreshing ? "Updating… · " : ""}
+            {selected ? `Selected: ${selected.name}` : "None selected"} ·{" "}
+            {organizations.length}{" "}
+            {organizations.length === 1 ? "organization" : "organizations"}
+          </span>
+          <FreshnessStamp variant="card" />
+        </div>
       </div>
 
       <section className="card filter-bar" aria-label="Organization filters">
@@ -220,7 +204,7 @@ export default function OrganizationsPage() {
           <p>{emptyMessage}</p>
         </section>
       ) : (
-        <div className="stack">
+        <div className={`stack${refreshing ? " is-refreshing" : ""}`}>
           {organizations.map((org) => {
             const maxScore = org.max_score ?? 0;
             const postCount = org.post_count ?? 0;
@@ -236,7 +220,10 @@ export default function OrganizationsPage() {
                 <button
                   type="button"
                   className="org-select-btn"
-                  onClick={() => selectOrganization(isSelected ? null : org)}
+                  onClick={() => {
+                    drilldownLoadedRef.current = false;
+                    selectOrganization(isSelected ? null : org);
+                  }}
                 >
                   <div className="alert-top">
                     <div className="alert-meta">

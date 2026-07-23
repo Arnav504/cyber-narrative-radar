@@ -10,6 +10,11 @@ function apiUrl(path: string): string {
   return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+/** Absolute URL for the SSE notification stream. */
+export function eventsStreamUrl(): string {
+  return apiUrl("/api/events/stream");
+}
+
 export type HealthResponse = {
   status: string;
   service: string;

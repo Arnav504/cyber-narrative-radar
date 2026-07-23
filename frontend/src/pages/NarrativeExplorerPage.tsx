@@ -1,4 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import FreshnessStamp from "../components/FreshnessStamp";
+import { useDashboardRefresh } from "../context/DashboardRefreshContext";
+import { DEFAULT_POLL_INTERVAL_MS, usePolling } from "../hooks/usePolling";
 import { fetchNarratives, type NarrativeCluster } from "../lib/api";
 
 const TOP_POSTS_SHOWN = 3;
@@ -20,42 +23,41 @@ function formatTimestamp(value: string | null): string {
 }
 
 export default function NarrativeExplorerPage() {
+  const { refreshVersion, notifyUpdated } = useDashboardRefresh();
   const [clusters, setClusters] = useState<NarrativeCluster[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function load() {
-      try {
-        const data = await fetchNarratives();
-        if (controller.signal.aborted) {
-          return;
-        }
-        setClusters(data);
-        setError(null);
-      } catch (err) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setError(err instanceof Error ? err.message : "Failed to load narratives");
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
+  const load = useCallback(async () => {
+    if (hasLoadedRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
     }
 
-    void load();
-    return () => controller.abort();
-  }, []);
+    try {
+      const data = await fetchNarratives();
+      setClusters(data);
+      setError(null);
+      notifyUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load narratives");
+    } finally {
+      hasLoadedRef.current = true;
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [notifyUpdated]);
 
-  if (loading) {
+  usePolling(load, DEFAULT_POLL_INTERVAL_MS, { deps: [refreshVersion] });
+
+  if (loading && clusters.length === 0) {
     return <p className="status-line">Loading narrative clusters…</p>;
   }
 
-  if (error) {
+  if (error && clusters.length === 0) {
     return <p className="status-line error">Narratives error: {error}</p>;
   }
 
@@ -71,10 +73,14 @@ export default function NarrativeExplorerPage() {
             counts and evidence posts are explainable.
           </p>
         </div>
-        <span className="page-header-meta">
-          {clusters.length} {clusters.length === 1 ? "cluster" : "clusters"} ·{" "}
-          {totalPosts} {totalPosts === 1 ? "post" : "posts"}
-        </span>
+        <div className="page-header-freshness">
+          <span className="page-header-meta">
+            {refreshing ? "Updating… · " : ""}
+            {clusters.length} {clusters.length === 1 ? "cluster" : "clusters"} ·{" "}
+            {totalPosts} {totalPosts === 1 ? "post" : "posts"}
+          </span>
+          <FreshnessStamp variant="card" />
+        </div>
       </div>
 
       {clusters.length === 0 ? (
@@ -86,7 +92,7 @@ export default function NarrativeExplorerPage() {
           </p>
         </section>
       ) : (
-        <div className="stack">
+        <div className={`stack${refreshing ? " is-refreshing" : ""}`}>
           {clusters.map((cluster) => {
             const topPosts = cluster.top_posts.slice(0, TOP_POSTS_SHOWN);
 

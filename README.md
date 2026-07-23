@@ -2,6 +2,29 @@
 
 Cyber Narrative Radar is a portfolio-grade cybersecurity self-starter project inspired by the public concept behind narrative-intelligence platforms such as Narravance and ChatterFlow, but adapted for cybersecurity early warning rather than trading.
 
+## Portfolio presentation
+
+**Pitch:** A local-first cybersecurity narrative intelligence MVP that turns public chatter into explainable early-warning alerts for watchlist organizations.
+
+### What this project demonstrates
+
+For hiring managers and technical leaders, this repo is evidence of end-to-end product and engineering judgment—not just a model demo:
+
+- **Security / OSINT product sense** — frames early warning around cyber narrative types (ransomware, phishing, zero-days, supply chain, etc.) with an analyst workflow in mind
+- **Full-stack delivery** — FastAPI + SQLAlchemy backend, React/TypeScript dashboard, Docker/Render/Railway deploy path
+- **Explainable analytics over black-box AI** — deterministic scoring, TF-IDF + KMeans clustering, rule-based summaries; LLMs optional and off the critical detection path
+- **Data pipeline discipline** — public/synthetic ingestion (RSS + seed data), normalized schemas, org/sector mapping, searchable/filterable alerts
+- **Operator UX** — alerts with evidence, organization selection + trends, narrative explorer with cluster summaries
+- **Ship readiness** — env-based config, CORS, Postgres URL normalization, deployment docs, and a repeatable demo checklist
+
+### Recommended demo flow (5–7 minutes)
+
+1. **Overview** — show KPIs (alerts, orgs, narrative clusters) and recent cluster activity  
+2. **Alerts** — open a high-severity alert; walk through score, why-flagged reasons, and evidence posts; try search + category/org/source filters  
+3. **Organizations** — search/filter the watchlist, select an org; show Detail (activity summary) and Trend (mention volume)  
+4. **Narratives** — open Narrative Explorer; explain TF-IDF/KMeans cluster title, post count, rule-based summary, categories/orgs, and top posts  
+5. **Close** — call out explainability (evidence + deterministic methods) and deployability (Render blueprint / Railway Docker API)
+
 ## Goal
 
 Build a local-first MVP that:
@@ -137,8 +160,13 @@ Sources -> Ingestion -> Normalization -> Storage -> Analytics -> Alerts -> Dashb
 - Build dashboard pages
 - Add charts and drilldowns
 
-### Phase 6
-- Add optional LLM summaries outside the critical detection path
+### Phase 6 (complete — deployment + portfolio presentation)
+- Environment-based backend config (`DATABASE_URL`, `FRONTEND_URL`, CORS)
+- SQLite locally + lightweight PostgreSQL readiness (`postgres://` normalization, `psycopg2-binary`)
+- Frontend `VITE_API_BASE_URL` + `.env.example`
+- `render.yaml` (API + static frontend) and Railway-ready `backend/Dockerfile`
+- README deployment instructions, demo checklist, and portfolio presentation
+- Optional LLM summaries remain outside the critical detection path (future)
 
 ## Deployment
 
@@ -189,11 +217,30 @@ Serve `frontend/dist` on any static host, and keep `FRONTEND_URL` on the API poi
 | `FRONTEND_URL` | Backend | CORS allowlist for the dashboard |
 | `VITE_API_BASE_URL` | Frontend build | API origin baked into the client |
 | `ENVIRONMENT` | Backend | `local` or `production` |
+| `DEMO_LIVE_INTERVAL_MIN` / `MAX` | Backend (optional) | Cadence for `generate_live_demo` (default 20–30s) |
+
+### Optional live synthetic demo mode
+
+To make the dashboard visibly update during a walkthrough (no external APIs):
+
+```bash
+# Terminal A — API
+cd backend && uvicorn app.main:app --reload --port 8000
+
+# Terminal B — seed once, then stream synthetic posts
+cd backend
+python -m app.tasks.seed_demo_data
+python -m app.tasks.generate_live_demo
+# Ctrl+C to stop
+```
+
+Posts are labeled `source=synthetic`. Leave this process stopped for normal RSS/seed-only usage.
 
 ## Demo checklist
 
 - [ ] Backend healthy: `GET /api/health` returns `healthy`
 - [ ] Seed or ingest data (local): `python -m app.tasks.seed_demo_data` then optional `ingest_rss` / `score_posts`
+- [ ] (Optional) Live demo chatter: `python -m app.tasks.generate_live_demo` (Ctrl+C to stop)
 - [ ] Alerts page loads with scores, evidence, search, and filters
 - [ ] Organizations: search/sector filters work; selecting an org updates Detail + Trend
 - [ ] Narratives: clusters show title, count, summary, orgs/categories, top posts

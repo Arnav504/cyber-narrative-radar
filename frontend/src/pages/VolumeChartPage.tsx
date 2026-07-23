@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -8,45 +8,48 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import FreshnessStamp from "../components/FreshnessStamp";
+import { useDashboardRefresh } from "../context/DashboardRefreshContext";
+import { DEFAULT_POLL_INTERVAL_MS, usePolling } from "../hooks/usePolling";
 import { fetchVolumeMetrics, type VolumeMetricsResponse } from "../lib/api";
+import { LIVE_RESPONSIVE_PROPS, LIVE_SERIES_PROPS } from "../lib/chartLive";
 
 export default function VolumeChartPage() {
+  const { refreshVersion, notifyUpdated } = useDashboardRefresh();
   const [metrics, setMetrics] = useState<VolumeMetricsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function load() {
-      try {
-        const data = await fetchVolumeMetrics(14);
-        if (controller.signal.aborted) {
-          return;
-        }
-        setMetrics(data);
-        setError(null);
-      } catch (err) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setError(err instanceof Error ? err.message : "Failed to load volume metrics");
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
+  const load = useCallback(async () => {
+    if (hasLoadedRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
     }
 
-    void load();
-    return () => controller.abort();
-  }, []);
+    try {
+      const data = await fetchVolumeMetrics(14);
+      setMetrics(data);
+      setError(null);
+      notifyUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load volume metrics");
+    } finally {
+      hasLoadedRef.current = true;
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [notifyUpdated]);
 
-  if (loading) {
+  usePolling(load, DEFAULT_POLL_INTERVAL_MS, { deps: [refreshVersion] });
+
+  if (loading && !metrics) {
     return <p className="status-line">Loading volume metrics…</p>;
   }
 
-  if (error) {
+  if (error && !metrics) {
     return <p className="status-line error">Volume error: {error}</p>;
   }
 
@@ -62,7 +65,13 @@ export default function VolumeChartPage() {
             chatter bursts.
           </p>
         </div>
-        <span className="page-header-meta">{metrics?.total_posts ?? 0} posts</span>
+        <div className="page-header-freshness">
+          <span className="page-header-meta">
+            {refreshing ? "Updating… · " : ""}
+            {metrics?.total_posts ?? 0} posts
+          </span>
+          <FreshnessStamp variant="card" />
+        </div>
       </div>
 
       {points.length === 0 ? (
@@ -75,10 +84,10 @@ export default function VolumeChartPage() {
           </p>
         </section>
       ) : (
-        <section className="card chart-card">
+        <section className={`card chart-card${refreshing ? " is-refreshing" : ""}`}>
           <h3>Posts per day</h3>
           <div className="chart-frame">
-            <ResponsiveContainer width="100%" height={360}>
+            <ResponsiveContainer {...LIVE_RESPONSIVE_PROPS}>
               <LineChart data={points} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#d3dce4" vertical={false} />
                 <XAxis
@@ -95,6 +104,7 @@ export default function VolumeChartPage() {
                   width={40}
                 />
                 <Tooltip
+                  isAnimationActive={false}
                   contentStyle={{
                     borderRadius: 8,
                     border: "1px solid #d3dce4",
@@ -110,6 +120,7 @@ export default function VolumeChartPage() {
                   strokeWidth={2.5}
                   dot={{ r: 3, fill: "#0b4a56" }}
                   activeDot={{ r: 5 }}
+                  {...LIVE_SERIES_PROPS}
                 />
               </LineChart>
             </ResponsiveContainer>

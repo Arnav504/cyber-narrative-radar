@@ -15,6 +15,13 @@ from app.analytics.classifier import classify_text
 from app.collectors.rss import RssEntry, fetch_rss_entries
 from app.db.models import Organization, Post
 from app.db.session import SessionLocal, init_db
+from app.services.event_notify import notify_api
+from app.services.events import (
+    EVENT_NARRATIVES_UPDATED,
+    EVENT_NEW_POST,
+    publish_narratives_updated,
+    publish_new_post,
+)
 from app.services.rss_sources import DEFAULT_RSS_SOURCES, RssSource
 
 # Lightweight alias map for common entities seen in public cyber news.
@@ -228,6 +235,18 @@ def ingest_rss(
                     stats["skipped_errors"] += 1
 
             db.commit()
+
+        changed = stats["inserted"] + stats["updated"]
+        if changed > 0:
+            publish_new_post(inserted=stats["inserted"], updated=stats["updated"])
+            publish_narratives_updated(reason="rss_ingest")
+            # Bridge CLI ingest → running API SSE subscribers (no-op if API down).
+            notify_api(
+                EVENT_NEW_POST,
+                inserted=stats["inserted"],
+                updated=stats["updated"],
+            )
+            notify_api(EVENT_NARRATIVES_UPDATED, reason="rss_ingest")
 
         print(
             "[rss] done — "

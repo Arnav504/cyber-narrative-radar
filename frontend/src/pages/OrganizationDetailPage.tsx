@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import FreshnessStamp from "../components/FreshnessStamp";
+import { useDashboardRefresh } from "../context/DashboardRefreshContext";
 import { useSelectedOrganization } from "../context/OrganizationContext";
+import { DEFAULT_POLL_INTERVAL_MS, usePolling } from "../hooks/usePolling";
 import {
   fetchOrganizationDetail,
   type OrganizationDetail,
@@ -23,53 +26,57 @@ function formatTimestamp(value: string | null): string {
 
 export default function OrganizationDetailPage() {
   const { selected, ready } = useSelectedOrganization();
+  const { refreshVersion, notifyUpdated } = useDashboardRefresh();
   const [detail, setDetail] = useState<OrganizationDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
+  const slug = selected?.slug ?? "";
+  const previousSlugRef = useRef(slug);
 
-  useEffect(() => {
-    if (!ready) {
-      return;
-    }
+  if (previousSlugRef.current !== slug) {
+    previousSlugRef.current = slug;
+    hasLoadedRef.current = false;
+  }
 
-    if (!selected) {
+  const load = useCallback(async () => {
+    if (!slug) {
       setDetail(null);
       setError(null);
       setLoading(false);
       return;
     }
 
-    const controller = new AbortController();
-
-    async function load() {
+    if (hasLoadedRef.current) {
+      setRefreshing(true);
+    } else {
       setLoading(true);
-      try {
-        const data = await fetchOrganizationDetail(selected!.slug);
-        if (controller.signal.aborted) {
-          return;
-        }
-        setDetail(data);
-        setError(null);
-      } catch (err) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setDetail(null);
-        setError(
-          err instanceof Error ? err.message : "Failed to load organization detail",
-        );
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
     }
 
-    void load();
-    return () => controller.abort();
-  }, [selected, ready]);
+    try {
+      const data = await fetchOrganizationDetail(slug);
+      setDetail(data);
+      setError(null);
+      notifyUpdated();
+    } catch (err) {
+      setDetail(null);
+      setError(
+        err instanceof Error ? err.message : "Failed to load organization detail",
+      );
+    } finally {
+      hasLoadedRef.current = true;
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [slug, notifyUpdated]);
 
-  if (!ready || loading) {
+  usePolling(load, DEFAULT_POLL_INTERVAL_MS, {
+    enabled: ready && Boolean(slug),
+    deps: [slug, refreshVersion],
+  });
+
+  if (!ready || (loading && !detail && selected)) {
     return <p className="status-line">Loading organization detail…</p>;
   }
 
@@ -90,7 +97,7 @@ export default function OrganizationDetailPage() {
     );
   }
 
-  if (error) {
+  if (error && !detail) {
     return <p className="status-line error">Organization detail error: {error}</p>;
   }
 
@@ -111,12 +118,16 @@ export default function OrganizationDetailPage() {
             Summary card and recent posts for <strong>{selected.name}</strong>.
           </p>
         </div>
-        <span className="page-header-meta">
-          {postCount} {postCount === 1 ? "post" : "posts"}
-        </span>
+        <div className="page-header-freshness">
+          <span className="page-header-meta">
+            {refreshing ? "Updating… · " : ""}
+            {postCount} {postCount === 1 ? "post" : "posts"}
+          </span>
+          <FreshnessStamp variant="card" />
+        </div>
       </div>
 
-      <div className="stack">
+      <div className={`stack${refreshing ? " is-refreshing" : ""}`}>
         <article className="card alert-card">
           <div className="alert-top">
             <div className="alert-meta">

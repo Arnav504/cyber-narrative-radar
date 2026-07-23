@@ -17,6 +17,13 @@ from app.analytics.scoring import (
 )
 from app.db.models import Alert, Post
 from app.db.session import SessionLocal, init_db
+from app.services.event_notify import notify_api
+from app.services.events import (
+    EVENT_ALERTS_UPDATED,
+    EVENT_NARRATIVES_UPDATED,
+    publish_alerts_updated,
+    publish_narratives_updated,
+)
 
 
 def _parse_organizations(raw: str) -> tuple[str, ...]:
@@ -119,6 +126,18 @@ def score_posts(*, lookback_hours: int = 24) -> dict[str, int]:
             stats["alerts_updated"] += 1
 
         db.commit()
+        if stats["posts_scored"] > 0 or stats["alerts_updated"] > 0:
+            publish_alerts_updated(
+                posts_scored=stats["posts_scored"],
+                alerts_updated=stats["alerts_updated"],
+            )
+            publish_narratives_updated(reason="score_posts")
+            notify_api(
+                EVENT_ALERTS_UPDATED,
+                posts_scored=stats["posts_scored"],
+                alerts_updated=stats["alerts_updated"],
+            )
+            notify_api(EVENT_NARRATIVES_UPDATED, reason="score_posts")
         print(
             "[score] done — "
             f"posts_scored={stats['posts_scored']} "

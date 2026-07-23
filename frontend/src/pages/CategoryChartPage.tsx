@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -8,10 +8,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import FreshnessStamp from "../components/FreshnessStamp";
+import { useDashboardRefresh } from "../context/DashboardRefreshContext";
+import { DEFAULT_POLL_INTERVAL_MS, usePolling } from "../hooks/usePolling";
 import {
   fetchCategoryMetrics,
   type CategoryMetricsResponse,
 } from "../lib/api";
+import { LIVE_RESPONSIVE_PROPS, LIVE_SERIES_PROPS } from "../lib/chartLive";
 
 function shortenCategory(label: string): string {
   if (label.length <= 22) {
@@ -21,42 +25,41 @@ function shortenCategory(label: string): string {
 }
 
 export default function CategoryChartPage() {
+  const { refreshVersion, notifyUpdated } = useDashboardRefresh();
   const [metrics, setMetrics] = useState<CategoryMetricsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function load() {
-      try {
-        const data = await fetchCategoryMetrics();
-        if (controller.signal.aborted) {
-          return;
-        }
-        setMetrics(data);
-        setError(null);
-      } catch (err) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setError(err instanceof Error ? err.message : "Failed to load category metrics");
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
+  const load = useCallback(async () => {
+    if (hasLoadedRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
     }
 
-    void load();
-    return () => controller.abort();
-  }, []);
+    try {
+      const data = await fetchCategoryMetrics();
+      setMetrics(data);
+      setError(null);
+      notifyUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load category metrics");
+    } finally {
+      hasLoadedRef.current = true;
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [notifyUpdated]);
 
-  if (loading) {
+  usePolling(load, DEFAULT_POLL_INTERVAL_MS, { deps: [refreshVersion] });
+
+  if (loading && !metrics) {
     return <p className="status-line">Loading category metrics…</p>;
   }
 
-  if (error) {
+  if (error && !metrics) {
     return <p className="status-line error">Categories error: {error}</p>;
   }
 
@@ -77,9 +80,13 @@ export default function CategoryChartPage() {
             concentrated chatter themes.
           </p>
         </div>
-        <span className="page-header-meta">
-          {metrics?.total_posts ?? 0} posts
-        </span>
+        <div className="page-header-freshness">
+          <span className="page-header-meta">
+            {refreshing ? "Updating… · " : ""}
+            {metrics?.total_posts ?? 0} posts
+          </span>
+          <FreshnessStamp variant="card" />
+        </div>
       </div>
 
       {chartData.length === 0 ? (
@@ -93,10 +100,10 @@ export default function CategoryChartPage() {
         </section>
       ) : (
         <>
-          <section className="card chart-card">
+          <section className={`card chart-card${refreshing ? " is-refreshing" : ""}`}>
             <h3>Posts by narrative category</h3>
             <div className="chart-frame">
-              <ResponsiveContainer width="100%" height={360}>
+              <ResponsiveContainer {...LIVE_RESPONSIVE_PROPS}>
                 <BarChart
                   data={chartData}
                   margin={{ top: 8, right: 12, left: 0, bottom: 48 }}
@@ -121,6 +128,7 @@ export default function CategoryChartPage() {
                   />
                   <Tooltip
                     cursor={{ fill: "rgba(11, 74, 86, 0.06)" }}
+                    isAnimationActive={false}
                     contentStyle={{
                       borderRadius: 8,
                       border: "1px solid #d3dce4",
@@ -133,7 +141,13 @@ export default function CategoryChartPage() {
                     }}
                     formatter={(value: number) => [`${value}`, "Posts"]}
                   />
-                  <Bar dataKey="count" fill="#0b4a56" radius={[4, 4, 0, 0]} maxBarSize={56} />
+                  <Bar
+                    dataKey="count"
+                    fill="#0b4a56"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={56}
+                    {...LIVE_SERIES_PROPS}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>

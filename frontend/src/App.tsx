@@ -1,4 +1,9 @@
 import { useState } from "react";
+import FreshnessStamp from "./components/FreshnessStamp";
+import {
+  DashboardRefreshProvider,
+  useDashboardRefresh,
+} from "./context/DashboardRefreshContext";
 import { OrganizationProvider } from "./context/OrganizationContext";
 import AlertsPage from "./pages/AlertsPage";
 import CategoryChartPage from "./pages/CategoryChartPage";
@@ -55,6 +60,30 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+function DashboardToolbar() {
+  const { refresh } = useDashboardRefresh();
+
+  return (
+    <header className="dashboard-toolbar" aria-label="Dashboard status">
+      <div className="dashboard-toolbar-status">
+        <FreshnessStamp variant="header" />
+        <p className="dashboard-toolbar-hint">
+          Auto-poll every 15s · live SSE when available · Refresh reloads this view
+        </p>
+      </div>
+      <button
+        type="button"
+        className="dashboard-refresh-btn"
+        onClick={refresh}
+        aria-label="Refresh dashboard data"
+        title="Refetch current page data without clearing filters or selection"
+      >
+        Refresh
+      </button>
+    </header>
+  );
+}
+
 function AppShell() {
   const [page, setPage] = useState<PageId>("overview");
 
@@ -88,6 +117,7 @@ function AppShell() {
       </aside>
 
       <div className="dashboard-main">
+        <DashboardToolbar />
         <main className="dashboard-content">
           {page === "overview" && <OverviewPage />}
           {page === "alerts" && <AlertsPage />}
@@ -105,9 +135,11 @@ function AppShell() {
 
 function App() {
   return (
-    <OrganizationProvider>
-      <AppShell />
-    </OrganizationProvider>
+    <DashboardRefreshProvider>
+      <OrganizationProvider>
+        <AppShell />
+      </OrganizationProvider>
+    </DashboardRefreshProvider>
   );
 }
 

@@ -9,6 +9,15 @@ from sqlalchemy import select
 
 from app.db.models import Alert, AlertEvidence, Narrative, Organization, Post
 from app.db.session import SessionLocal, init_db
+from app.services.event_notify import notify_api
+from app.services.events import (
+    EVENT_ALERTS_UPDATED,
+    EVENT_NARRATIVES_UPDATED,
+    EVENT_NEW_POST,
+    publish_alerts_updated,
+    publish_narratives_updated,
+    publish_new_post,
+)
 
 
 def _hours_ago(hours: float, *, minutes: int = 0) -> datetime:
@@ -353,6 +362,17 @@ def seed_demo_data(*, reset: bool = True) -> None:
         db.add_all(alerts)
         db.add_all(evidence)
         db.commit()
+
+        publish_new_post(source="seed_demo_data", count=len(posts))
+        publish_alerts_updated(source="seed_demo_data", count=len(alerts))
+        publish_narratives_updated(source="seed_demo_data", count=len(narratives))
+        notify_api(EVENT_NEW_POST, source="seed_demo_data", count=len(posts))
+        notify_api(EVENT_ALERTS_UPDATED, source="seed_demo_data", count=len(alerts))
+        notify_api(
+            EVENT_NARRATIVES_UPDATED,
+            source="seed_demo_data",
+            count=len(narratives),
+        )
 
         print(
             "Seeded demo data: "

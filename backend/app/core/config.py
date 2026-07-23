@@ -41,10 +41,19 @@ class Settings(BaseSettings):
         description="Extra CORS origins as a comma-separated string (env: CORS_ORIGINS)",
     )
 
-    @field_validator("frontend_url", "database_url")
+    @field_validator("frontend_url")
     @classmethod
-    def _strip_value(cls, value: str) -> str:
+    def _strip_frontend_url(cls, value: str) -> str:
         return (value or "").strip()
+
+    @field_validator("database_url")
+    @classmethod
+    def _normalize_database_url(cls, value: str) -> str:
+        """Strip and normalize provider URLs (postgres:// → postgresql://)."""
+        cleaned = (value or "").strip()
+        if cleaned.startswith("postgres://"):
+            return "postgresql://" + cleaned[len("postgres://") :]
+        return cleaned
 
     @property
     def is_sqlite(self) -> bool:

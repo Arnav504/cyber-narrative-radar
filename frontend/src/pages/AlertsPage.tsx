@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import FreshnessStamp from "../components/FreshnessStamp";
+import { useDashboardRefresh } from "../context/DashboardRefreshContext";
+import { DEFAULT_POLL_INTERVAL_MS, usePolling } from "../hooks/usePolling";
 import {
   fetchAlerts,
   fetchOrganizations,
@@ -34,12 +37,13 @@ function formatTimestamp(value: string): string {
 }
 
 export default function AlertsPage() {
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const { refreshVersion, notifyUpdated } = useDashboardRefresh();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
   const [organization, setOrganization] = useState("");
   const [source, setSource] = useState("");
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,61 +51,39 @@ export default function AlertsPage() {
 
   const filtersActive = Boolean(search.trim() || category || organization || source);
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function loadOrganizations() {
-      try {
-        const data = await fetchOrganizations();
-        if (controller.signal.aborted) {
-          return;
-        }
-        setOrganizations([...data].sort((a, b) => a.name.localeCompare(b.name)));
-      } catch {
-        // Organization dropdown falls back to empty; alerts still load.
-      }
+  const load = useCallback(async () => {
+    if (hasLoadedRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
     }
 
-    void loadOrganizations();
-    return () => controller.abort();
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function load() {
-      if (hasLoadedRef.current) {
-        setRefreshing(true);
-      }
-      try {
-        const data = await fetchAlerts({
+    try {
+      const [alertRows, orgRows] = await Promise.all([
+        fetchAlerts({
           search: search.trim() || undefined,
           category: category || undefined,
           organization: organization || undefined,
           source: source || undefined,
-        });
-        if (controller.signal.aborted) {
-          return;
-        }
-        setAlerts(data);
-        setError(null);
-      } catch (err) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setError(err instanceof Error ? err.message : "Failed to load alerts");
-      } finally {
-        if (!controller.signal.aborted) {
-          hasLoadedRef.current = true;
-          setLoading(false);
-          setRefreshing(false);
-        }
-      }
+        }),
+        fetchOrganizations(),
+      ]);
+      setAlerts(alertRows);
+      setOrganizations([...orgRows].sort((a, b) => a.name.localeCompare(b.name)));
+      setError(null);
+      notifyUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load alerts");
+    } finally {
+      hasLoadedRef.current = true;
+      setLoading(false);
+      setRefreshing(false);
     }
+  }, [search, category, organization, source, notifyUpdated]);
 
-    void load();
-    return () => controller.abort();
-  }, [search, category, organization, source]);
+  usePolling(load, DEFAULT_POLL_INTERVAL_MS, {
+    deps: [search, category, organization, source, refreshVersion],
+  });
 
   function clearFilters() {
     setSearch("");
@@ -110,7 +92,7 @@ export default function AlertsPage() {
     setSource("");
   }
 
-  if (loading) {
+  if (loading && alerts.length === 0) {
     return <p className="status-line">Loading alerts…</p>;
   }
 
@@ -128,10 +110,13 @@ export default function AlertsPage() {
             linked evidence posts.
           </p>
         </div>
-        <span className="page-header-meta">
-          {refreshing ? "Updating… · " : ""}
-          {alerts.length} {alerts.length === 1 ? "alert" : "alerts"}
-        </span>
+        <div className="page-header-freshness">
+          <span className="page-header-meta">
+            {refreshing ? "Updating… · " : ""}
+            {alerts.length} {alerts.length === 1 ? "alert" : "alerts"}
+          </span>
+          <FreshnessStamp variant="card" />
+        </div>
       </div>
 
       <section className="card filter-bar" aria-label="Alert filters">
@@ -205,9 +190,7 @@ export default function AlertsPage() {
         )}
       </section>
 
-      {error && (
-        <p className="status-line error">Alerts error: {error}</p>
-      )}
+      {error && <p className="status-line error">Alerts error: {error}</p>}
 
       {alerts.length === 0 ? (
         <section className="card empty-state">
@@ -265,9 +248,9 @@ export default function AlertsPage() {
                 <section className="alert-panel">
                   <h4>Why flagged</h4>
                   <ul className="reason-list">
-                    {alert.why_flagged.map((reason, index) => (
+                    {alert.why_flagged.map((reason) => (
                       <li key={reason}>
-                        <span className="reason-index">{index + 1}.</span>
+                        <span className="reason-index">•</span>
                         <span>{reason}</span>
                       </li>
                     ))}

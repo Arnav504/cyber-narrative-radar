@@ -1,4 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import FreshnessStamp from "../components/FreshnessStamp";
+import { useDashboardRefresh } from "../context/DashboardRefreshContext";
+import { DEFAULT_POLL_INTERVAL_MS, usePolling } from "../hooks/usePolling";
 import {
   fetchAlerts,
   fetchHealth,
@@ -10,82 +13,71 @@ import {
   type Organization,
 } from "../lib/api";
 
-type OverviewState = {
-  health: HealthResponse | null;
+type OverviewPayload = {
+  health: HealthResponse;
   alerts: Alert[];
   organizations: Organization[];
   narratives: NarrativeCluster[];
-  error: string | null;
-  loading: boolean;
 };
 
 export default function OverviewPage() {
-  const [state, setState] = useState<OverviewState>({
-    health: null,
-    alerts: [],
-    organizations: [],
-    narratives: [],
-    error: null,
-    loading: true,
-  });
+  const { refreshVersion, notifyUpdated } = useDashboardRefresh();
+  const [data, setData] = useState<OverviewPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function load() {
-      try {
-        const [health, alerts, organizations, narratives] = await Promise.all([
-          fetchHealth(),
-          fetchAlerts(),
-          fetchOrganizations(),
-          fetchNarratives(),
-        ]);
-
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        setState({
-          health,
-          alerts,
-          organizations,
-          narratives,
-          error: null,
-          loading: false,
-        });
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        setState((prev) => ({
-          ...prev,
-          loading: false,
-          error: error instanceof Error ? error.message : "Failed to load overview",
-        }));
-      }
+  const load = useCallback(async () => {
+    if (hasLoadedRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
     }
 
-    void load();
-    return () => controller.abort();
-  }, []);
+    try {
+      const [health, alerts, organizations, narratives] = await Promise.all([
+        fetchHealth(),
+        fetchAlerts(),
+        fetchOrganizations(),
+        fetchNarratives(),
+      ]);
+      setData({ health, alerts, organizations, narratives });
+      setError(null);
+      notifyUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load overview");
+    } finally {
+      hasLoadedRef.current = true;
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [notifyUpdated]);
 
-  if (state.loading) {
+  usePolling(load, DEFAULT_POLL_INTERVAL_MS, { deps: [refreshVersion] });
+
+  if (loading && !data) {
     return <p className="status-line">Loading overview…</p>;
   }
 
-  if (state.error) {
-    return <p className="status-line error">Overview error: {state.error}</p>;
+  if (error && !data) {
+    return <p className="status-line error">Overview error: {error}</p>;
   }
 
-  const alertCount = state.alerts.length;
-  const organizationCount = state.organizations.length;
-  const narrativeCount = state.narratives.length;
+  const health = data?.health ?? null;
+  const alerts = data?.alerts ?? [];
+  const organizations = data?.organizations ?? [];
+  const narratives = data?.narratives ?? [];
 
-  const highSeverity = state.alerts.filter(
+  const alertCount = alerts.length;
+  const organizationCount = organizations.length;
+  const narrativeCount = narratives.length;
+
+  const highSeverity = alerts.filter(
     (alert) => alert.severity === "high" || alert.severity === "critical",
   ).length;
-  const topRisk = [...state.organizations].sort((a, b) => b.risk_score - a.risk_score)[0];
-  const topCluster = [...state.narratives].sort((a, b) => b.count - a.count)[0];
+  const topRisk = [...organizations].sort((a, b) => b.risk_score - a.risk_score)[0];
+  const topCluster = [...narratives].sort((a, b) => b.count - a.count)[0];
   const totalEntities = alertCount + organizationCount + narrativeCount;
 
   return (
@@ -97,12 +89,16 @@ export default function OverviewPage() {
             Local MVP snapshot of alerts, watchlist organizations, and narrative clusters.
           </p>
         </div>
-        <span className="page-header-meta">
-          API {state.health?.status ?? "unknown"} · v{state.health?.version ?? "—"}
-        </span>
+        <div className="page-header-freshness">
+          <span className="page-header-meta">
+            {refreshing ? "Updating… · " : ""}
+            API {health?.status ?? "unknown"} · v{health?.version ?? "—"}
+          </span>
+          <FreshnessStamp variant="card" />
+        </div>
       </div>
 
-      <div className="kpi-grid">
+      <div className={`kpi-grid${refreshing ? " is-refreshing" : ""}`}>
         <section className="card kpi-card" aria-label={`${alertCount} alerts`}>
           <p className="kpi-label">Alerts</p>
           <p className="kpi-value">{alertCount}</p>
@@ -143,11 +139,11 @@ export default function OverviewPage() {
           <span className="page-header-meta">{totalEntities} tracked items</span>
         </div>
 
-        {state.narratives.length === 0 ? (
+        {narratives.length === 0 ? (
           <p className="muted">No narratives available yet.</p>
         ) : (
           <ul className="reason-list">
-            {state.narratives.map((narrative, index) => (
+            {narratives.map((narrative, index) => (
               <li key={narrative.id}>
                 <span className="reason-index">{index + 1}.</span>
                 <span>

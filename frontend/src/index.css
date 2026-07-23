@@ -126,10 +126,103 @@ code {
 
 .dashboard-main {
   min-width: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.dashboard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding: 12px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.dashboard-toolbar-status {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dashboard-toolbar-hint {
+  margin: 0;
+  color: var(--ink-subtle);
+  font-size: 0.78rem;
+}
+
+.freshness-stamp {
+  margin: 0;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.freshness-stamp-header {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.freshness-stamp-card {
+  font-size: 0.78rem;
+  color: var(--ink-subtle);
+}
+
+.page-header-freshness {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  align-content: end;
+}
+
+.dashboard-last-updated {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-refresh-btn {
+  border: 1px solid var(--line-strong);
+  background: var(--bg-elevated);
+  color: var(--ink);
+  border-radius: 7px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 500;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.dashboard-refresh-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.dashboard-refresh-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .dashboard-content {
   min-width: 0;
+}
+
+.is-refreshing {
+  opacity: 0.92;
+  transition: opacity 0.2s ease;
+}
+
+/* Chart cards: keep full opacity on poll — dimming + Recharts redraw felt like jank. */
+.chart-card.is-refreshing {
+  opacity: 1;
+  transition: none;
 }
 
 .nav-btn {
@@ -586,6 +679,7 @@ code {
 
 .chart-frame {
   width: 100%;
+  min-width: 0;
   min-height: 360px;
 }
 

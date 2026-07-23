@@ -2,18 +2,22 @@
 
 from contextlib import asynccontextmanager
 
+import asyncio
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import alerts, health, metrics, narratives, organizations
+from app.api import alerts, events, health, metrics, narratives, organizations
 from app.core.config import settings
 from app.db.session import init_db
+from app.services.events import event_bus
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Create tables on startup — simple and safe for the MVP deploy path."""
+    """Create tables on startup and bind the live event bus to this loop."""
     init_db()
+    event_bus.bind_loop(asyncio.get_running_loop())
     yield
 
 
@@ -36,6 +40,7 @@ app.include_router(alerts.router, prefix=settings.api_prefix)
 app.include_router(organizations.router, prefix=settings.api_prefix)
 app.include_router(narratives.router, prefix=settings.api_prefix)
 app.include_router(metrics.router, prefix=settings.api_prefix)
+app.include_router(events.router, prefix=settings.api_prefix)
 
 
 @app.get("/")
