@@ -87,3 +87,45 @@ def get_volume_metrics(
     sorted_days = sorted(by_day.keys())[-window_days:]
     points = [VolumePoint(date=day, count=by_day[day]) for day in sorted_days]
     return VolumeMetricsResponse(total_posts=total_posts, points=points)
+
+
+class SourceCount(BaseModel):
+    """Post count for one ingest source."""
+
+    source: str
+    count: int = Field(ge=0)
+    share: float = Field(ge=0, description="Fraction of total posts 0-1")
+
+
+class SourceMetricsResponse(BaseModel):
+    """Source mix for the analyst dashboard."""
+
+    total_posts: int
+    sources: list[SourceCount]
+
+
+@router.get("/sources", response_model=SourceMetricsResponse)
+def get_source_metrics(db: Session = Depends(get_db)) -> SourceMetricsResponse:
+    """Return post counts by source (rss, reddit, cisa, nvd, synthetic, …)."""
+    rows = db.execute(
+        select(Post.source, func.count())
+        .group_by(Post.source)
+        .order_by(func.count().desc())
+    ).all()
+
+    sources: list[SourceCount] = []
+    total_posts = 0
+    raw: list[tuple[str, int]] = []
+    for source, count in rows:
+        label = (source or "unknown").strip() or "unknown"
+        value = int(count)
+        total_posts += value
+        raw.append((label, value))
+
+    for label, value in raw:
+        share = (value / total_posts) if total_posts else 0.0
+        sources.append(
+            SourceCount(source=label, count=value, share=round(share, 4))
+        )
+
+    return SourceMetricsResponse(total_posts=total_posts, sources=sources)

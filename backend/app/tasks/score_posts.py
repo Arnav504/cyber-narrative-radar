@@ -15,8 +15,10 @@ from app.analytics.scoring import (
     build_temporal_org_counts,
     score_post_anomaly,
 )
+from app.core.config import settings
 from app.db.models import Alert, Post
 from app.db.session import SessionLocal, init_db
+from app.services.auto_alerts import upsert_alerts_from_scored_posts
 from app.services.event_notify import notify_api
 from app.services.events import (
     EVENT_ALERTS_UPDATED,
@@ -51,7 +53,7 @@ def score_posts(*, lookback_hours: int = 24) -> dict[str, int]:
     """
     init_db()
     db = SessionLocal()
-    stats = {"posts_scored": 0, "alerts_updated": 0}
+    stats = {"posts_scored": 0, "alerts_updated": 0, "alerts_upserted": 0}
     now = datetime.now(timezone.utc)
 
     try:
@@ -125,23 +127,38 @@ def score_posts(*, lookback_hours: int = 24) -> dict[str, int]:
             alert.why_flagged = json.dumps(merged)
             stats["alerts_updated"] += 1
 
+        auto_stats = upsert_alerts_from_scored_posts(
+            db,
+            posts,
+            scored_by_id,
+            min_score=settings.auto_alert_min_score,
+        )
+        stats["alerts_upserted"] = int(auto_stats.get("alerts_upserted", 0))
+
         db.commit()
-        if stats["posts_scored"] > 0 or stats["alerts_updated"] > 0:
+        if (
+            stats["posts_scored"] > 0
+            or stats["alerts_updated"] > 0
+            or stats["alerts_upserted"] > 0
+        ):
             publish_alerts_updated(
                 posts_scored=stats["posts_scored"],
                 alerts_updated=stats["alerts_updated"],
+                alerts_upserted=stats["alerts_upserted"],
             )
             publish_narratives_updated(reason="score_posts")
             notify_api(
                 EVENT_ALERTS_UPDATED,
                 posts_scored=stats["posts_scored"],
                 alerts_updated=stats["alerts_updated"],
+                alerts_upserted=stats["alerts_upserted"],
             )
             notify_api(EVENT_NARRATIVES_UPDATED, reason="score_posts")
         print(
             "[score] done — "
             f"posts_scored={stats['posts_scored']} "
             f"alerts_updated={stats['alerts_updated']} "
+            f"alerts_upserted={stats['alerts_upserted']} "
             f"lookback_hours={lookback_hours}"
         )
         return stats

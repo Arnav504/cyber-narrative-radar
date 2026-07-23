@@ -127,7 +127,25 @@ cyber-narrative-radar/
 
 ## MVP workflow
 
-Sources -> Ingestion -> Normalization -> Storage -> Analytics -> Alerts -> Dashboard
+```text
+Sources (RSS · CISA/KEV · NVD · Reddit · synthetic)
+    → Ingest / normalize
+    → Classify + CVE extract + score
+    → Auto-alerts + SSE notify
+    → FastAPI
+    → React dashboard (Overview · Alerts · Org risk brief · Narratives)
+```
+
+```mermaid
+flowchart LR
+  A[Public feeds] --> B[Collectors]
+  B --> C[(SQLite / Postgres)]
+  C --> D[Score + auto-alerts]
+  D --> E[SSE notify]
+  C --> F[REST APIs]
+  E --> G[Dashboard refresh]
+  F --> G
+```
 
 ## Phase plan
 
@@ -218,6 +236,71 @@ Serve `frontend/dist` on any static host, and keep `FRONTEND_URL` on the API poi
 | `VITE_API_BASE_URL` | Frontend build | API origin baked into the client |
 | `ENVIRONMENT` | Backend | `local` or `production` |
 | `DEMO_LIVE_INTERVAL_MIN` / `MAX` | Backend (optional) | Cadence for `generate_live_demo` (default 20–30s) |
+| `LIVE_INGEST` | Backend (optional) | Set `1` to run scheduled RSS ingest + scoring in the API |
+| `LIVE_INGEST_INTERVAL_SECONDS` | Backend (optional) | Seconds between RSS runs (default `180`) |
+| `AUTO_ALERT_MIN_SCORE` | Backend (optional) | Min 0–100 score to upsert auto-alerts (default `45`) |
+
+### Optional scheduled RSS (Week 1)
+
+Near–real-time public feeds without Celery — env-gated inside the API process:
+
+```bash
+cd backend
+export LIVE_INGEST=1
+export LIVE_INGEST_INTERVAL_SECONDS=180   # every 3 minutes
+uvicorn app.main:app --reload --port 8000
+```
+
+- Status: `GET http://localhost:8000/api/ingest/status`
+- Manual run: `POST http://localhost:8000/api/ingest/run`
+- Leave `LIVE_INGEST` unset/`0` for normal usage (CLI ingest only)
+
+Scoring also upserts `alert-auto-*` records when post scores clear `AUTO_ALERT_MIN_SCORE`.
+
+### Week 2 — CISA / NVD + CVE extraction
+
+Public advisory ingest (no scraping of private sites):
+
+- **CISA RSS** advisories / alerts / current activity (via User-Agent-aware RSS fetch)
+- **CISA KEV** JSON catalog (`source=cisa`)
+- **NVD API 2.0** recent CVEs (`source=nvd`)
+- **CVE ID extraction** into `posts.cve_ids` (also shown on alert evidence)
+
+```bash
+cd backend
+python -m app.tasks.ingest_rss
+python -m app.tasks.score_posts
+```
+
+Existing local DBs get a light `ALTER TABLE` for `cve_ids` on startup.
+
+### Week 3 — Reddit + source mix
+
+Official Reddit read path (public `.json` + User-Agent; optional app-only OAuth):
+
+```bash
+cd backend
+# optional: export REDDIT_CLIENT_ID=... REDDIT_CLIENT_SECRET=...
+python -m app.tasks.ingest_reddit
+# or full pipeline (RSS + CISA/NVD + Reddit):
+python -m app.tasks.ingest_rss
+```
+
+Disable Reddit: `REDDIT_ENABLED=0`.
+
+Dashboard: Overview **Source mix** chart uses `GET /api/metrics/sources`.
+
+### Week 4 — Org risk brief + deploy + recorded demo
+
+- **Risk brief API:** `GET /api/organizations/{slug}/risk-brief`
+- **UI:** Organization Detail → Risk brief (level, 24h vs baseline, narratives, CVEs, evidence, caveats)
+- **Deploy:** `render.yaml` enables `LIVE_INGEST=1` (5‑minute cadence). After deploy, seed via Render Shell.
+- **Recording outline:** [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)
+
+```bash
+# Local risk-brief check
+curl -s http://localhost:8000/api/organizations/acme-logistics/risk-brief | python -m json.tool
+```
 
 ### Optional live synthetic demo mode
 
@@ -242,8 +325,9 @@ Posts are labeled `source=synthetic`. Leave this process stopped for normal RSS/
 - [ ] Seed or ingest data (local): `python -m app.tasks.seed_demo_data` then optional `ingest_rss` / `score_posts`
 - [ ] (Optional) Live demo chatter: `python -m app.tasks.generate_live_demo` (Ctrl+C to stop)
 - [ ] Alerts page loads with scores, evidence, search, and filters
-- [ ] Organizations: search/sector filters work; selecting an org updates Detail + Trend
+- [ ] Organizations: search/sector filters work; selecting an org updates Detail (risk brief) + Trend
 - [ ] Narratives: clusters show title, count, summary, orgs/categories, top posts
-- [ ] Overview KPIs and charts (categories / volume) render without console errors
+- [ ] Overview KPIs, source mix, and charts render without console errors
 - [ ] CORS works between deployed frontend and API (`FRONTEND_URL` / `VITE_API_BASE_URL` set)
-- [ ] Portfolio walkthrough ready: alert → org drilldown → narrative cluster explainability
+- [ ] Portfolio walkthrough ready: alert → org risk brief → narrative cluster explainability
+- [ ] Optional: record Loom using `docs/DEMO_SCRIPT.md`

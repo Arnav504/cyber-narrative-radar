@@ -42,6 +42,8 @@ class Post(Base):
         index=True,
     )
     organization_mentions: Mapped[str] = mapped_column(Text, default="[]")  # JSON list
+    # Extracted CVE IDs (JSON list), e.g. ["CVE-2024-1234"].
+    cve_ids: Mapped[str] = mapped_column(Text, default="[]")
     narrative_type: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     # Deterministic 0-1 score for ranking / future anomaly workflows.
     severity_score: Mapped[float] = mapped_column(Float, default=0.0, index=True)

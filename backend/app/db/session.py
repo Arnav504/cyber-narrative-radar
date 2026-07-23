@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
@@ -46,12 +46,40 @@ engine = create_engine(database_url, **_engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
 
+def _ensure_posts_cve_ids_column() -> None:
+    """Add ``posts.cve_ids`` on existing databases created before Week 2."""
+    with engine.begin() as conn:
+        if is_sqlite:
+            rows = conn.execute(text("PRAGMA table_info(posts)")).fetchall()
+            names = {row[1] for row in rows}
+            if "cve_ids" not in names:
+                conn.execute(
+                    text("ALTER TABLE posts ADD COLUMN cve_ids TEXT DEFAULT '[]'")
+                )
+            return
+
+        exists = conn.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'posts' AND column_name = 'cve_ids'"
+            )
+        ).first()
+        if exists is None:
+            conn.execute(
+                text("ALTER TABLE posts ADD COLUMN cve_ids TEXT DEFAULT '[]'")
+            )
+
+
 def init_db() -> None:
-    """Create all tables if they do not already exist."""
+    """Create all tables if they do not already exist, then apply light upgrades."""
     # Import models so metadata is registered before create_all.
     from app.db import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    try:
+        _ensure_posts_cve_ids_column()
+    except Exception as exc:  # noqa: BLE001 - do not block API startup on ALTER races
+        print(f"[db] schema ensure skipped: {exc}")
 
 
 def get_db() -> Generator[Session, None, None]:

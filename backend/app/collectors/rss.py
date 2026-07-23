@@ -1,4 +1,4 @@
-"""Lightweight RSS collector using feedparser."""
+"""Lightweight RSS collector using feedparser (+ httpx User-Agent)."""
 
 from __future__ import annotations
 
@@ -9,8 +9,11 @@ from time import struct_time
 from typing import Any
 
 import feedparser
+import httpx
 
 from app.services.rss_sources import RssSource
+
+USER_AGENT = "CyberNarrativeRadar/0.1 (+https://github.com/local; portfolio MVP)"
 
 
 @dataclass(frozen=True)
@@ -94,6 +97,18 @@ def _entry_content(entry: dict[str, Any]) -> str:
     return ""
 
 
+def _download_feed(url: str) -> str:
+    """Fetch feed XML with an explicit User-Agent (CISA requires this)."""
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+    }
+    with httpx.Client(timeout=30.0, follow_redirects=True, headers=headers) as client:
+        response = client.get(url)
+        response.raise_for_status()
+        return response.text
+
+
 def fetch_rss_entries(source: RssSource, *, max_entries: int | None = None) -> list[RssEntry]:
     """
     Fetch and normalize recent entries from one RSS feed.
@@ -101,7 +116,8 @@ def fetch_rss_entries(source: RssSource, *, max_entries: int | None = None) -> l
     Each entry always has a UTC ``published_at`` (feed date or current UTC fallback).
     """
     limit = max_entries if max_entries is not None else source.max_entries
-    parsed = feedparser.parse(source.url)
+    raw_xml = _download_feed(source.url)
+    parsed = feedparser.parse(raw_xml)
     fetched_at = utc_now()
 
     raw_entries = list(parsed.entries or [])[: max(0, limit)]

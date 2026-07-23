@@ -683,6 +683,33 @@ code {
   min-height: 360px;
 }
 
+.chart-frame-compact {
+  min-height: 220px;
+}
+
+.source-mix-legend {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.source-mix-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.92rem;
+}
+
+.source-mix-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
 .filter-bar {
   display: flex;
   flex-direction: column;
@@ -885,6 +912,61 @@ code {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+}
+
+.risk-brief-exec {
+  margin: 0 0 14px;
+  line-height: 1.55;
+  max-width: 48rem;
+}
+
+.risk-brief-stats {
+  margin-bottom: 14px;
+}
+
+.risk-brief-block {
+  margin-top: 14px;
+}
+
+.risk-brief-block h4 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.severity-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  border: 1px solid var(--line);
+  background: var(--bg-elevated);
+}
+
+.severity-pill.severity-low {
+  color: #3d5a40;
+  border-color: #b7c9b8;
+  background: #eef5ef;
+}
+
+.severity-pill.severity-medium {
+  color: #6b5a1e;
+  border-color: #d6c88a;
+  background: #f8f3e0;
+}
+
+.severity-pill.severity-high {
+  color: #7a3b12;
+  border-color: #e0b089;
+  background: #f8eee4;
+}
+
+.severity-pill.severity-critical {
+  color: #6e1c1c;
+  border-color: #d39a9a;
+  background: #f7e8e8;
 }
 
 .narrative-summary-box {

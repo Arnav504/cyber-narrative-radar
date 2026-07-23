@@ -18,7 +18,7 @@ const CATEGORY_OPTIONS = [
   "Deepfake / disinformation cyber influence",
 ] as const;
 
-const SOURCE_OPTIONS = ["rss", "reddit", "synthetic"] as const;
+const SOURCE_OPTIONS = ["rss", "reddit", "cisa", "nvd", "synthetic"] as const;
 
 function formatTimestamp(value: string): string {
   if (!value) {
@@ -277,6 +277,11 @@ export default function AlertsPage() {
                             item.title
                           )}
                         </p>
+                        {item.cve_ids && item.cve_ids.length > 0 ? (
+                          <p className="muted evidence-cves">
+                            CVEs: {item.cve_ids.join(", ")}
+                          </p>
+                        ) : null}
                       </li>
                     ))}
                   </ul>

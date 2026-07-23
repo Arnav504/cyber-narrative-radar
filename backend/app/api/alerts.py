@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.analytics.scoring import severity_from_score
+from app.analytics.cve import parse_cve_ids_json
 from app.db import models
 from app.db.session import get_db
 
@@ -26,6 +27,7 @@ class EvidencePost(BaseModel):
     published_at: str
     severity_score: float = 0.0
     narrative_type: str | None = None
+    cve_ids: list[str] = Field(default_factory=list)
 
 
 class Alert(BaseModel):
@@ -85,6 +87,9 @@ def _to_alert_response(row: models.Alert) -> Alert:
                 ),
                 severity_score=round(post_score, 4),
                 narrative_type=post.narrative_type if post is not None else None,
+                cve_ids=list(
+                    parse_cve_ids_json(getattr(post, "cve_ids", None) if post is not None else None)
+                ),
             )
         )
 

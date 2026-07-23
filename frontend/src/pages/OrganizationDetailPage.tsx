@@ -5,7 +5,9 @@ import { useSelectedOrganization } from "../context/OrganizationContext";
 import { DEFAULT_POLL_INTERVAL_MS, usePolling } from "../hooks/usePolling";
 import {
   fetchOrganizationDetail,
+  fetchOrganizationRiskBrief,
   type OrganizationDetail,
+  type OrganizationRiskBrief,
 } from "../lib/api";
 
 function formatTimestamp(value: string | null): string {
@@ -28,6 +30,7 @@ export default function OrganizationDetailPage() {
   const { selected, ready } = useSelectedOrganization();
   const { refreshVersion, notifyUpdated } = useDashboardRefresh();
   const [detail, setDetail] = useState<OrganizationDetail | null>(null);
+  const [brief, setBrief] = useState<OrganizationRiskBrief | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +46,7 @@ export default function OrganizationDetailPage() {
   const load = useCallback(async () => {
     if (!slug) {
       setDetail(null);
+      setBrief(null);
       setError(null);
       setLoading(false);
       return;
@@ -55,12 +59,17 @@ export default function OrganizationDetailPage() {
     }
 
     try {
-      const data = await fetchOrganizationDetail(slug);
-      setDetail(data);
+      const [detailData, briefData] = await Promise.all([
+        fetchOrganizationDetail(slug),
+        fetchOrganizationRiskBrief(slug),
+      ]);
+      setDetail(detailData);
+      setBrief(briefData);
       setError(null);
       notifyUpdated();
     } catch (err) {
       setDetail(null);
+      setBrief(null);
       setError(
         err instanceof Error ? err.message : "Failed to load organization detail",
       );
@@ -115,7 +124,8 @@ export default function OrganizationDetailPage() {
         <div>
           <h2>Organization Detail</h2>
           <p>
-            Summary card and recent posts for <strong>{selected.name}</strong>.
+            Risk brief, activity summary, and recent posts for{" "}
+            <strong>{selected.name}</strong>.
           </p>
         </div>
         <div className="page-header-freshness">
@@ -160,6 +170,107 @@ export default function OrganizationDetailPage() {
             </p>
           )}
         </article>
+
+        {brief && (
+          <section className="card risk-brief" aria-label="Organization risk brief">
+            <div className="org-summary-header">
+              <h3>Risk brief</h3>
+              <span className={`severity-pill severity-${brief.risk_level}`}>
+                {brief.risk_level} · {brief.risk_score_0_100.toFixed(0)}/100
+              </span>
+            </div>
+
+            <p className="risk-brief-exec">{brief.executive_summary}</p>
+
+            <dl className="org-summary-stats risk-brief-stats">
+              <div className="org-summary-stat">
+                <dt>Volume 24h</dt>
+                <dd>{brief.volume_24h}</dd>
+              </div>
+              <div className="org-summary-stat">
+                <dt>7d daily baseline</dt>
+                <dd>{brief.baseline_7d_daily_avg.toFixed(1)}</dd>
+              </div>
+              <div className="org-summary-stat">
+                <dt>Volume ratio</dt>
+                <dd>{brief.volume_ratio.toFixed(2)}x</dd>
+              </div>
+              <div className="org-summary-stat">
+                <dt>Linked alerts</dt>
+                <dd>
+                  {brief.open_alert_count}
+                  {brief.highest_alert_severity
+                    ? ` · ${brief.highest_alert_severity}`
+                    : ""}
+                </dd>
+              </div>
+            </dl>
+
+            {brief.top_narratives.length > 0 && (
+              <div className="risk-brief-block">
+                <h4>Top narratives</h4>
+                <ul className="reason-list">
+                  {brief.top_narratives.map((item) => (
+                    <li key={item.narrative_type}>
+                      <span className="narrative-chip">{item.narrative_type}</span>
+                      <span className="muted">
+                        {" "}
+                        · {item.count} · {Math.round(item.share * 100)}%
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {brief.cve_ids.length > 0 && (
+              <p className="muted">
+                CVEs: <strong>{brief.cve_ids.join(", ")}</strong>
+              </p>
+            )}
+
+            {brief.evidence.length > 0 && (
+              <div className="risk-brief-block">
+                <h4>Evidence</h4>
+                <ul className="evidence-list">
+                  {brief.evidence.map((item) => (
+                    <li key={item.id} className="evidence-item">
+                      <div className="evidence-item-top">
+                        <span className="source-tag">{item.source}</span>
+                        <span className="evidence-time">
+                          {formatTimestamp(item.published_at)}
+                        </span>
+                      </div>
+                      <p className="evidence-title">
+                        {item.url ? (
+                          <a href={item.url} target="_blank" rel="noreferrer">
+                            {item.title}
+                          </a>
+                        ) : (
+                          item.title
+                        )}
+                      </p>
+                      {item.cve_ids.length > 0 && (
+                        <p className="muted">CVEs: {item.cve_ids.join(", ")}</p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="risk-brief-block">
+              <h4>Caveats</h4>
+              <ul className="reason-list">
+                {brief.caveats.map((caveat) => (
+                  <li key={caveat}>
+                    <span className="muted">{caveat}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        )}
 
         <section className="card org-summary-box" aria-label="Organization activity summary">
           <div className="org-summary-header">

@@ -27,6 +27,9 @@ export type EvidencePost = {
   title: string;
   url: string | null;
   published_at: string;
+  severity_score?: number;
+  narrative_type?: string | null;
+  cve_ids?: string[];
 };
 
 export type Alert = {
@@ -97,6 +100,17 @@ export type CategoryMetricsResponse = {
   categories: CategoryCount[];
 };
 
+export type SourceCount = {
+  source: string;
+  count: number;
+  share: number;
+};
+
+export type SourceMetricsResponse = {
+  total_posts: number;
+  sources: SourceCount[];
+};
+
 export type VolumePoint = {
   date: string;
   count: number;
@@ -151,6 +165,37 @@ export type OrganizationTimeseriesResponse = {
   organization_name: string;
   total_posts: number;
   points: OrganizationTimeseriesPoint[];
+};
+
+export type OrganizationRiskBrief = {
+  organization_name: string;
+  organization_slug: string;
+  sector: string;
+  risk_level: string;
+  risk_score_0_100: number;
+  executive_summary: string;
+  volume_24h: number;
+  baseline_7d_daily_avg: number;
+  volume_ratio: number;
+  top_narratives: Array<{
+    narrative_type: string;
+    count: number;
+    share: number;
+  }>;
+  open_alert_count: number;
+  highest_alert_severity: string | null;
+  cve_ids: string[];
+  evidence: Array<{
+    id: string;
+    title: string;
+    source: string;
+    url: string | null;
+    published_at: string | null;
+    severity_score: number;
+    cve_ids: string[];
+  }>;
+  caveats: string[];
+  generated_at: string;
 };
 
 async function getJson<T>(path: string): Promise<T> {
@@ -243,6 +288,10 @@ export function fetchCategoryMetrics(): Promise<CategoryMetricsResponse> {
   return getJson<CategoryMetricsResponse>("/api/metrics/categories");
 }
 
+export function fetchSourceMetrics(): Promise<SourceMetricsResponse> {
+  return getJson<SourceMetricsResponse>("/api/metrics/sources");
+}
+
 export function fetchVolumeMetrics(days = 14): Promise<VolumeMetricsResponse> {
   return getJson<VolumeMetricsResponse>(`/api/metrics/volume?days=${days}`);
 }
@@ -253,5 +302,13 @@ export function fetchOrganizationTimeseries(
 ): Promise<OrganizationTimeseriesResponse> {
   return getJson<OrganizationTimeseriesResponse>(
     `/api/organizations/${organizationSlug}/timeseries?days=${days}`,
+  );
+}
+
+export function fetchOrganizationRiskBrief(
+  organizationSlug: string,
+): Promise<OrganizationRiskBrief> {
+  return getJson<OrganizationRiskBrief>(
+    `/api/organizations/${organizationSlug}/risk-brief`,
   );
 }

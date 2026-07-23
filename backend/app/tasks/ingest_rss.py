@@ -12,7 +12,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.analytics.classifier import classify_text
+from app.analytics.cve import cve_ids_to_json, extract_cve_ids
 from app.collectors.rss import RssEntry, fetch_rss_entries
+from app.core.config import settings
 from app.db.models import Organization, Post
 from app.db.session import SessionLocal, init_db
 from app.services.event_notify import notify_api
@@ -134,12 +136,14 @@ def compute_severity_score(
     classification_label: str,
     classifier_score: float,
     organization_count: int,
+    *,
+    cve_count: int = 0,
 ) -> float:
     """
     Build a simple deterministic 0-1 severity score for a post.
 
-    Uses classifier confidence, whether a narrative category matched, and
-    whether organizations were inferred.
+    Uses classifier confidence, whether a narrative category matched,
+    organizations inferred, and CVE mentions.
     """
     if classification_label == "Unclassified":
         score = 0.12
@@ -148,6 +152,8 @@ def compute_severity_score(
 
     if organization_count > 0:
         score += min(0.15, 0.05 * organization_count)
+    if cve_count > 0:
+        score += min(0.2, 0.08 * cve_count)
 
     return round(min(1.0, score), 4)
 
@@ -157,18 +163,29 @@ def upsert_rss_entry(db: Session, entry: RssEntry, watchlist: list[Organization]
     text = _combined_text(entry)
     classification = classify_text(text)
     entities = infer_organizations_and_sectors(text, watchlist)
+    cve_ids = extract_cve_ids(text)
     now = datetime.now(timezone.utc)
     published_at = entry.published_at or now
 
     narrative_type = (
         classification.label if classification.label != "Unclassified" else None
     )
+    # CVE mentions are strong evidence for vulnerability narratives.
+    if cve_ids and narrative_type in (None, "Unclassified"):
+        narrative_type = "Zero-day / critical vulnerability"
+    elif cve_ids and narrative_type != "Zero-day / critical vulnerability":
+        # Keep phishing/ransomware if the classifier already matched; otherwise prefer CVE.
+        if classification.score < 0.45:
+            narrative_type = "Zero-day / critical vulnerability"
+
     organization_mentions = json.dumps(list(entities.organizations))
     severity_score = compute_severity_score(
-        classification.label,
+        classification.label if narrative_type else "Unclassified",
         classification.score,
         len(entities.organizations),
+        cve_count=len(cve_ids),
     )
+    cve_json = cve_ids_to_json(cve_ids)
 
     existing = _existing_post(db, "rss", entry.external_id)
     if existing is not None:
@@ -179,6 +196,7 @@ def upsert_rss_entry(db: Session, entry: RssEntry, watchlist: list[Organization]
         existing.organization_mentions = organization_mentions
         existing.narrative_type = narrative_type
         existing.severity_score = severity_score
+        existing.cve_ids = cve_json
         # Keep original created_at on updates; only fill if missing.
         if existing.created_at is None:
             existing.created_at = now
@@ -196,6 +214,7 @@ def upsert_rss_entry(db: Session, entry: RssEntry, watchlist: list[Organization]
             organization_mentions=organization_mentions,
             narrative_type=narrative_type,
             severity_score=severity_score,
+            cve_ids=cve_json,
             created_at=now,
         )
     )
@@ -206,12 +225,24 @@ def ingest_rss(
     sources: tuple[RssSource, ...] = DEFAULT_RSS_SOURCES,
     *,
     max_entries_per_feed: int | None = None,
+    include_cisa_kev: bool = True,
+    include_nvd: bool = True,
+    include_reddit: bool | None = None,
 ) -> dict[str, int]:
-    """Pull recent RSS entries and store them as local Post records."""
+    """Pull RSS (+ optional CISA KEV / NVD / Reddit) into local Post records."""
     init_db()
-    db = SessionLocal()
-    stats = {"feeds": 0, "fetched": 0, "inserted": 0, "updated": 0, "skipped_errors": 0}
+    stats = {
+        "feeds": 0,
+        "fetched": 0,
+        "inserted": 0,
+        "updated": 0,
+        "skipped_errors": 0,
+        "cisa_kev_inserted": 0,
+        "nvd_inserted": 0,
+        "reddit_inserted": 0,
+    }
 
+    db = SessionLocal()
     try:
         watchlist = list(db.scalars(select(Organization)).all())
 
@@ -235,31 +266,74 @@ def ingest_rss(
                     stats["skipped_errors"] += 1
 
             db.commit()
-
-        changed = stats["inserted"] + stats["updated"]
-        if changed > 0:
-            publish_new_post(inserted=stats["inserted"], updated=stats["updated"])
-            publish_narratives_updated(reason="rss_ingest")
-            # Bridge CLI ingest → running API SSE subscribers (no-op if API down).
-            notify_api(
-                EVENT_NEW_POST,
-                inserted=stats["inserted"],
-                updated=stats["updated"],
-            )
-            notify_api(EVENT_NARRATIVES_UPDATED, reason="rss_ingest")
-
-        print(
-            "[rss] done — "
-            f"feeds={stats['feeds']} fetched={stats['fetched']} "
-            f"inserted={stats['inserted']} updated={stats['updated']} "
-            f"errors={stats['skipped_errors']}"
-        )
-        return stats
     except Exception:
         db.rollback()
         raise
     finally:
         db.close()
+
+    # Advisory JSON/API sources (Week 2) — separate sessions, best-effort.
+    if include_cisa_kev:
+        try:
+            from app.collectors.cisa_kev import ingest_cisa_kev
+
+            kev = ingest_cisa_kev(max_items=15)
+            stats["cisa_kev_inserted"] = int(kev.get("inserted", 0))
+            stats["inserted"] += int(kev.get("inserted", 0))
+            stats["updated"] += int(kev.get("updated", 0))
+            stats["fetched"] += int(kev.get("fetched", 0))
+        except Exception as exc:  # noqa: BLE001
+            print(f"[rss] CISA KEV ingest skipped: {exc}")
+            stats["skipped_errors"] += 1
+
+    if include_nvd:
+        try:
+            from app.collectors.nvd import ingest_nvd_recent
+
+            nvd = ingest_nvd_recent(results_per_page=10, lookback_days=7)
+            stats["nvd_inserted"] = int(nvd.get("inserted", 0))
+            stats["inserted"] += int(nvd.get("inserted", 0))
+            stats["updated"] += int(nvd.get("updated", 0))
+            stats["fetched"] += int(nvd.get("fetched", 0))
+        except Exception as exc:  # noqa: BLE001
+            print(f"[rss] NVD ingest skipped: {exc}")
+            stats["skipped_errors"] += 1
+
+    run_reddit = settings.reddit_enabled if include_reddit is None else include_reddit
+    if run_reddit:
+        try:
+            from app.tasks.ingest_reddit import ingest_reddit
+
+            reddit = ingest_reddit(limit_per_subreddit=12)
+            stats["reddit_inserted"] = int(reddit.get("inserted", 0))
+            stats["inserted"] += int(reddit.get("inserted", 0))
+            stats["updated"] += int(reddit.get("updated", 0))
+            stats["fetched"] += int(reddit.get("fetched", 0))
+        except Exception as exc:  # noqa: BLE001
+            print(f"[rss] Reddit ingest skipped: {exc}")
+            stats["skipped_errors"] += 1
+
+    changed = stats["inserted"] + stats["updated"]
+    if changed > 0:
+        publish_new_post(inserted=stats["inserted"], updated=stats["updated"])
+        publish_narratives_updated(reason="rss_ingest")
+        notify_api(
+            EVENT_NEW_POST,
+            inserted=stats["inserted"],
+            updated=stats["updated"],
+        )
+        notify_api(EVENT_NARRATIVES_UPDATED, reason="rss_ingest")
+
+    print(
+        "[rss] done — "
+        f"feeds={stats['feeds']} fetched={stats['fetched']} "
+        f"inserted={stats['inserted']} updated={stats['updated']} "
+        f"cisa_kev_inserted={stats['cisa_kev_inserted']} "
+        f"nvd_inserted={stats['nvd_inserted']} "
+        f"reddit_inserted={stats['reddit_inserted']} "
+        f"errors={stats['skipped_errors']}"
+    )
+    return stats
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db import models
 from app.db.session import get_db
+from app.services.org_risk_brief import build_organization_risk_brief, risk_brief_to_dict
 from app.services.organization_summary import build_organization_summary
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
@@ -89,6 +90,45 @@ class OrganizationTimeseries(BaseModel):
     organization_name: str
     total_posts: int
     points: list[TimeseriesPoint]
+
+
+class RiskEvidenceLink(BaseModel):
+    """Evidence post cited by an organization risk brief."""
+
+    id: str
+    title: str
+    source: str
+    url: str | None = None
+    published_at: str | None = None
+    severity_score: float = 0.0
+    cve_ids: list[str] = Field(default_factory=list)
+
+
+class RiskNarrativeShare(BaseModel):
+    narrative_type: str
+    count: int
+    share: float
+
+
+class OrganizationRiskBriefResponse(BaseModel):
+    """Analyst-facing one-page risk brief for a watchlist organization."""
+
+    organization_name: str
+    organization_slug: str
+    sector: str
+    risk_level: str
+    risk_score_0_100: float
+    executive_summary: str
+    volume_24h: int
+    baseline_7d_daily_avg: float
+    volume_ratio: float
+    top_narratives: list[RiskNarrativeShare] = Field(default_factory=list)
+    open_alert_count: int = 0
+    highest_alert_severity: str | None = None
+    cve_ids: list[str] = Field(default_factory=list)
+    evidence: list[RiskEvidenceLink] = Field(default_factory=list)
+    caveats: list[str] = Field(default_factory=list)
+    generated_at: str
 
 
 def _parse_string_list(raw: str) -> list[str]:
@@ -345,6 +385,41 @@ def get_organization_timeseries(
         total_posts=len(related),
         points=points,
     )
+
+
+@router.get("/{organization_slug}/risk-brief", response_model=OrganizationRiskBriefResponse)
+def get_organization_risk_brief(
+    organization_slug: str,
+    db: Session = Depends(get_db),
+) -> OrganizationRiskBriefResponse:
+    """
+    Return a one-page explainable risk brief for an organization.
+
+    Includes 24h volume vs 7d baseline, top narratives, CVEs, alerts, and evidence.
+    """
+    row = _resolve_organization(db, organization_slug)
+    posts = list(db.scalars(select(models.Post)).all())
+    related = _related_posts_for_org(posts, row.name)
+    alerts = (
+        db.scalars(
+            select(models.Alert)
+            .where(
+                (models.Alert.organization_id == row.id)
+                | (models.Alert.organization_name == row.name)
+            )
+            .order_by(models.Alert.score.desc())
+        )
+        .unique()
+        .all()
+    )
+    brief = build_organization_risk_brief(
+        organization_name=row.name,
+        organization_slug=_slugify(row.name),
+        sector=row.sector,
+        posts=related,
+        alerts=list(alerts),
+    )
+    return OrganizationRiskBriefResponse(**risk_brief_to_dict(brief))
 
 
 # Backward-compatible alias used by the current frontend drilldown client.

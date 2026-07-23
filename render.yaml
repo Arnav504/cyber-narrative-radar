@@ -1,4 +1,4 @@
-# Render Blueprint — Cyber Narrative Radar (first pass)
+# Render Blueprint — Cyber Narrative Radar
 # Docs: https://render.com/docs/blueprint-spec
 #
 # Backend: FastAPI + uvicorn (rootDir: backend)
@@ -6,6 +6,12 @@
 #
 # FRONTEND_URL and VITE_API_BASE_URL are wired from each service's
 # RENDER_EXTERNAL_URL so CORS and API calls match the deployed hosts.
+#
+# After first deploy, open a Render Shell on the API service and run:
+#   python -m app.tasks.seed_demo_data
+#   python -m app.tasks.ingest_rss
+#   python -m app.tasks.score_posts
+# (SQLite on free tier is ephemeral unless you attach a disk / Postgres.)
 
 services:
   - type: web
@@ -24,6 +30,14 @@ services:
       # Local-style SQLite by default; override with Postgres DATABASE_URL in the dashboard if needed.
       - key: DATABASE_URL
         value: sqlite:///./cyber_narrative_radar.db
+      - key: LIVE_INGEST
+        value: "1"
+      - key: LIVE_INGEST_INTERVAL_SECONDS
+        value: "300"
+      - key: REDDIT_ENABLED
+        value: "1"
+      - key: AUTO_ALERT_MIN_SCORE
+        value: "45"
       - key: FRONTEND_URL
         fromService:
           type: web

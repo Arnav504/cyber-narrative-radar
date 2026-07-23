@@ -14,8 +14,8 @@ class RssSource:
     max_entries: int = 8
 
 
-# Small set of reputable, publicly available cybersecurity feeds.
-DEFAULT_RSS_SOURCES: tuple[RssSource, ...] = (
+# Industry / news RSS (general cyber chatter).
+NEWS_RSS_SOURCES: tuple[RssSource, ...] = (
     RssSource(
         name="Krebs on Security",
         url="https://krebsonsecurity.com/feed/",
@@ -37,3 +37,25 @@ DEFAULT_RSS_SOURCES: tuple[RssSource, ...] = (
         max_entries=8,
     ),
 )
+
+# Official government / vulnerability advisory feeds (Week 2).
+ADVISORY_RSS_SOURCES: tuple[RssSource, ...] = (
+    RssSource(
+        name="CISA Cybersecurity Advisories",
+        url="https://www.cisa.gov/cybersecurity-advisories/all.xml",
+        max_entries=10,
+    ),
+    RssSource(
+        name="CISA Alerts",
+        url="https://www.cisa.gov/uscert/ncas/alerts.xml",
+        max_entries=8,
+    ),
+    RssSource(
+        name="CISA Current Activity",
+        url="https://www.cisa.gov/uscert/ncas/current-activity.xml",
+        max_entries=8,
+    ),
+)
+
+# Combined default set used by scheduled + CLI ingest.
+DEFAULT_RSS_SOURCES: tuple[RssSource, ...] = NEWS_RSS_SOURCES + ADVISORY_RSS_SOURCES

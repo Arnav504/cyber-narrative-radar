@@ -174,11 +174,12 @@ def seed_demo_data(*, reset: bool = True) -> None:
                 title="Low-confidence chatter around Helix Cloud tooling CVE",
                 content=(
                     "Sparse discussion of a possible critical vulnerability in Helix "
-                    "Cloud management tooling."
+                    "Cloud management tooling involving CVE-2024-31337."
                 ),
                 url="https://example.com/rss/helix-cve",
                 published_at=t5,
                 organization_mentions=json.dumps(["Helix Cloud"]),
+                cve_ids=json.dumps(["CVE-2024-31337"]),
                 narrative_type="Zero-day / critical vulnerability",
                 severity_score=0.45,
                 created_at=t5 + timedelta(minutes=1),
@@ -190,11 +191,12 @@ def seed_demo_data(*, reset: bool = True) -> None:
                 title="Helix Cloud dependency note in security advisory roundup",
                 content=(
                     "A brief advisory mentions Helix Cloud in the context of an "
-                    "unpatched exploit path."
+                    "unpatched exploit path related to CVE-2024-31337."
                 ),
                 url="https://example.com/rss/helix-advisory",
                 published_at=t6,
                 organization_mentions=json.dumps(["Helix Cloud"]),
+                cve_ids=json.dumps(["CVE-2024-31337"]),
                 narrative_type="Zero-day / critical vulnerability",
                 severity_score=0.42,
                 created_at=t6 + timedelta(minutes=1),
